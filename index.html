@@ -105,7 +105,8 @@
                             <td>${data.precoVenda || 0} R$</td>
                             <td>${data.lucro || 0} R$</td>
                             <td>${data.estoque || 0}</td>
-                            <td><button onclick="orderMenu('${i}')">Pedir</button></td>`;
+                            <td><input type="number" id="qty-pedido-${i}" min="1" value="1" style="width: 50px; font-size: 12px;"></td>
+                            <td><button onclick="orderMenu('${i}')" style="font-size: 12px;">Pedir</button></td>`;
 
                         if (existingRow) {
                             existingRow.innerHTML = rowContent;
@@ -122,13 +123,14 @@
 
         async function orderMenu(menuId) {
             try {
+                const qtyPedido = parseInt(document.getElementById(`qty-pedido-${menuId}`).value, 10);
                 const menuRef = doc(db, "stock", `estoque-${menuId}`);
                 const docSnap = await getDoc(menuRef);
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    const orderDate = new Date().toLocaleString();
+                    const orderDate = new Date().toLocaleString('pt-BR', { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-                    if (data.estoque <= 0) {
+                    if (data.estoque < qtyPedido) {
                         alert(`Estoque insuficiente para o menu ${data.menu}`);
                         return;
                     }
@@ -137,21 +139,21 @@
                     const orderData = {
                         menu: data.menu,
                         materiaPrima: data.materiaPrima,
-                        precoVenda: data.precoVenda,
-                        lucro: data.lucro,
-                        estoque: data.estoque,
+                        precoVenda: data.precoVenda * qtyPedido,
+                        lucro: data.lucro * qtyPedido,
+                        estoque: data.estoque - qtyPedido,
                         orderDate: orderDate,
                         email: currentEmail,
                         tableNumber: currentTable,
-                        quantity: increment(1),
-                        totalCost: increment(data.precoVenda),
+                        quantityOrdered: qtyPedido,
+                        totalCost: increment(data.precoVenda * qtyPedido),
                     };
 
                     await setDoc(orderRef, orderData, { merge: true });
 
                     // Atualizar estoque
                     await updateDoc(menuRef, {
-                        estoque: increment(-1)
+                        estoque: increment(-qtyPedido)
                     });
 
                     alert(`O pedido do menu ${menuId} foi salvo no Firestore.`);
@@ -176,10 +178,6 @@
                     await setDoc(doc(db, "finalizado", orderId), data);
                     await deleteDoc(orderRef);
 
-                    // Reset the click count for the corresponding table to 0
-                    const tableClicksRef = doc(db, "tableClicks", `mesa-${data.tableNumber}`);
-                    await setDoc(tableClicksRef, { clickCount: 0 }, { merge: true });
-
                     alert(`Pedido ${orderId} foi finalizado e movido para os pedidos finalizados.`);
                     showAdminDashboard(); // Update the admin dashboard to remove finalized order
                 }
@@ -189,18 +187,21 @@
             }
         }
 
+        window.verifyPasswordAndProceed = function (screenFunction) {
+            const password = prompt("Por favor, insira a senha:");
+            if (password === "hide12") {
+                screenFunction();
+            } else {
+                alert("Senha incorreta. Tente novamente.");
+            }
+        };
+
         async function showAdminDashboard() {
             try {
                 const dashboardTable = document.getElementById('dashboard-table-body');
                 dashboardTable.innerHTML = '';
 
                 const querySnapshot = await getDocs(collection(db, "hide"));
-                const tableClicksSnapshot = await getDocs(collection(db, "tableClicks"));
-
-                const tableClicksMap = {};
-                tableClicksSnapshot.forEach(doc => {
-                    tableClicksMap[doc.id] = doc.data().clickCount;
-                });
 
                 if (querySnapshot.empty) {
                     alert("Nenhum dado encontrado.");
@@ -209,19 +210,18 @@
 
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
-                    const tableClickCount = tableClicksMap[`mesa-${data.tableNumber}`] || 0;
                     const row = `
                         <tr>
-                            <td style="text-align: center;">${data.menu || "N/A"}</td>
-                            <td style="text-align: center;">${data.materiaPrima || "N/A"}</td>
-                            <td style="text-align: center;">${data.precoVenda || 0} R$</td>
-                            <td style="text-align: center;">${data.lucro || 0} R$</td>
-                            <td style="text-align: center;">${data.estoque || 0}</td>
-                            <td style="text-align: center;">${data.orderDate || "N/A"}</td>
-                            <td style="text-align: center;">${data.email || "N/A"}</td>
-                            <td style="text-align: center;">${data.tableNumber || "N/A"}</td>
-                            <td style="text-align: center;">${tableClickCount}</td>
-                            <td style="text-align: center;"><button onclick="finalizeOrder('${doc.id}')">Pedido finalizado</button></td>
+                            <td>${data.menu || "N/A"}</td>
+                            <td>${data.materiaPrima || "N/A"}</td>
+                            <td>${data.precoVenda || 0} R$</td>
+                            <td>${data.lucro || 0} R$</td>
+                            <td>${data.estoque || 0}</td>
+                            <td style="white-space: nowrap;">${data.orderDate || "N/A"}</td>
+                            <td>${data.email || "N/A"}</td>
+                            <td>${data.tableNumber || "N/A"}</td>
+                            <td>${data.quantityOrdered || 0}</td>
+                            <td><button onclick="finalizeOrder('${doc.id}')" style="font-size: 12px;">Enviado</button></td>
                         </tr>`;
                     dashboardTable.innerHTML += row;
                 });
@@ -247,14 +247,15 @@
 
                     const row = `
                         <tr>
-                            <td style="text-align: center;">${data.menu || "N/A"}</td>
-                            <td style="text-align: center;">${data.materiaPrima || "N/A"}</td>
-                            <td style="text-align: center;">${data.precoVenda || 0} R$</td>
-                            <td style="text-align: center;">${data.lucro || 0} R$</td>
-                            <td style="text-align: center;">${data.estoque || 0}</td>
-                            <td style="text-align: center;">${data.orderDate || "N/A"}</td>
-                            <td style="text-align: center;">${data.email || "N/A"}</td>
-                            <td style="text-align: center;">${data.tableNumber || "N/A"}</td>
+                            <td>${data.menu || "N/A"}</td>
+                            <td>${data.materiaPrima || "N/A"}</td>
+                            <td>${data.precoVenda || 0} R$</td>
+                            <td>${data.lucro || 0} R$</td>
+                            <td>${data.estoque || 0}</td>
+                            <td style="white-space: nowrap;">${data.orderDate || "N/A"}</td>
+                            <td>${data.email || "N/A"}</td>
+                            <td>${data.tableNumber || "N/A"}</td>
+                            <td>${data.quantityOrdered || 0}</td>
                         </tr>`;
                     finalizedTable.innerHTML += row;
                 });
@@ -276,12 +277,12 @@
                         const data = doc.data() || {};
                         const row = `
                             <tr>
-                                <td><input type="text" id="menu-${i}-name" value="${data.menu || `Menu ${i}`}"></td>
-                                <td><input type="text" id="menu-${i}-materia" value="${data.materiaPrima || `Matéria Prima ${i}`}"></td>
-                                <td><input type="number" id="menu-${i}-preco" value="${data.precoVenda || 0}"> R$</td>
-                                <td><input type="number" id="menu-${i}-lucro" value="${data.lucro || 0}"> R$</td>
-                                <td><input type="number" id="menu-${i}-estoque" value="${data.estoque || 0}"></td>
-                                <td><button onclick="saveMenu('${i}')">Salvar</button></td>
+                                <td><input type="text" id="menu-${i}-name" value="${data.menu || `Menu ${i}`}" style="font-size: 12px;"></td>
+                                <td><input type="text" id="menu-${i}-materia" value="${data.materiaPrima || `Matéria Prima ${i}`}" style="font-size: 12px;"></td>
+                                <td><input type="number" id="menu-${i}-preco" value="${data.precoVenda || 0}" style="font-size: 12px;"> R$</td>
+                                <td><input type="number" id="menu-${i}-lucro" value="${data.lucro || 0}" style="font-size: 12px;"> R$</td>
+                                <td><input type="number" id="menu-${i}-estoque" value="${data.estoque || 0}" style="font-size: 12px;"></td>
+                                <td><button onclick="saveMenu('${i}')" style="font-size: 12px;">Salvar</button></td>
                             </tr>`;
                         inventoryTable.innerHTML += row;
                     });
@@ -290,6 +291,52 @@
                 showScreen('inventory-dashboard');
             } catch (error) {
                 console.error("Erro ao carregar a tela de inventário:", error);
+            }
+        }
+
+        async function showControleMesaScreen() {
+            try {
+                const controleTable = document.getElementById('controle-table-body');
+                controleTable.innerHTML = '';
+
+                const querySnapshot = await getDocs(collection(db, "finalizado"));
+
+                if (querySnapshot.empty) {
+                    alert("Nenhum pedido finalizado encontrado.");
+                    return;
+                }
+
+                const mesasMap = {};
+
+                querySnapshot.forEach(doc => {
+                    const data = doc.data();
+                    const tableNumber = data.tableNumber || "N/A";
+
+                    if (!mesasMap[tableNumber]) {
+                        mesasMap[tableNumber] = [];
+                    }
+                    mesasMap[tableNumber].push(data);
+                });
+
+                for (const [mesa, orders] of Object.entries(mesasMap)) {
+                    orders.forEach(order => {
+                        const row = `
+                            <tr>
+                                <td style="text-align: center;">Mesa ${mesa}</td>
+                                <td style="text-align: center;">${order.menu || "N/A"}</td>
+                                <td style="text-align: center;">${order.materiaPrima || "N/A"}</td>
+                                <td style="text-align: center;">${order.precoVenda || 0} R$</td>
+                                <td style="text-align: center;">${order.lucro || 0} R$</td>
+                                <td style="text-align: center;">${order.quantityOrdered || 0}</td>
+                            </tr>`;
+                        controleTable.innerHTML += row;
+                    });
+                }
+
+                showScreen('controle-mesa-dashboard');
+            } catch (error) {
+                console.error("Erro ao carregar o controle das mesas:", error);
+                alert("Ocorreu um problema ao carregar o controle das mesas.");
             }
         }
 
@@ -323,10 +370,11 @@
         window.showSignUpScreen = showSignUpScreen;
         window.showMenuScreen = showMenuScreen;
         window.orderMenu = orderMenu;
-        window.showAdminDashboard = showAdminDashboard;
+        window.showAdminDashboard = () => verifyPasswordAndProceed(showAdminDashboard);
+        window.showEstoqueScreen = () => verifyPasswordAndProceed(showEstoqueScreen);
+        window.showControleMesaScreen = () => verifyPasswordAndProceed(showControleMesaScreen);
         window.finalizeOrder = finalizeOrder;
         window.showScreen = showScreen;
-        window.showEstoqueScreen = showEstoqueScreen;
         window.saveMenu = saveMenu;
     </script>
     <style>
@@ -346,6 +394,7 @@
             border-radius: 10px;
             text-align: center;
             display: none;
+            position: relative;
         }
 
         .container.active {
@@ -355,7 +404,7 @@
         input, button {
             margin: 10px 0;
             padding: 10px;
-            font-size: 16px;
+            font-size: 14px;
             border-radius: 5px;
             border: none;
         }
@@ -376,12 +425,17 @@
             width: 100%;
             margin-top: 20px;
             border-collapse: collapse;
+            table-layout: fixed;
         }
 
         th, td {
-            padding: 10px;
+            padding: 8px;
             border: 1px solid #ddd;
             text-align: center;
+            word-wrap: break-word;
+            white-space: nowrap;
+            font-size: 12px;
+            overflow: hidden;
         }
 
         #table-buttons {
@@ -392,8 +446,8 @@
         }
 
         #table-buttons button {
-            font-size: 1.5rem;
-            padding: 20px;
+            font-size: 1.rem;
+            padding: 25px;
         }
 
         #dashboard-buttons {
@@ -406,15 +460,28 @@
             background-color: green;
         }
 
-        #admin-dashboard table, #inventory-dashboard table {
+        #admin-dashboard table, #inventory-dashboard table, #controle-mesa-dashboard table {
             width: 100%;
             margin-bottom: 20px;
         }
 
         #total-cost {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
             margin-top: 20px;
             text-align: center;
+        }
+
+        .back-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 10px 15px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -436,7 +503,7 @@
         <input type="email" id="signup-email" placeholder="Insira seu e-mail">
         <input type="password" id="signup-password" placeholder="Insira sua senha">
         <button onclick="signUp()">Cadastrar</button>
-        <button onclick="showScreen('login-screen')">Voltar</button>
+        <button class="back-button" onclick="showScreen('login-screen')">Voltar</button>
     </div>
 
     <div id="table-screen" class="container">
@@ -456,10 +523,11 @@
             <button onclick="showMenuScreen(12)">Mesa 12</button>
         </div>
         <div id="dashboard-buttons">
-            <button onclick="showEstoqueScreen()">ESTOQUE</button>
-            <button onclick="showAdminDashboard()">ADMINISTRADOR</button>
+            <button onclick="verifyPasswordAndProceed(showEstoqueScreen)">ESTOQUE</button>
+            <button onclick="verifyPasswordAndProceed(showControleMesaScreen)">CONTROLE MESA</button>
+            <button onclick="verifyPasswordAndProceed(showAdminDashboard)">ADMINISTRADOR</button>
         </div>
-        <button onclick="showScreen('login-screen')">Voltar</button>
+        <button class="back-button" onclick="showScreen('login-screen')">Voltar</button>
     </div>
 
     <div id="menu-screen" class="container">
@@ -472,6 +540,7 @@
                     <th>Preço</th>
                     <th>Lucro</th>
                     <th>Estoque</th>
+                    <th>QTY PEDIDO</th>
                     <th>Ação</th>
                 </tr>
             </thead>
@@ -479,7 +548,7 @@
                 <!-- Conteúdo da tabela do menu será gerado dinamicamente aqui -->
             </tbody>
         </table>
-        <button onclick="showScreen('table-screen')">Voltar</button>
+        <button class="back-button" onclick="showScreen('table-screen')">Voltar</button>
     </div>
 
     <div id="admin-dashboard" class="container">
@@ -495,7 +564,7 @@
                     <th>Data do Pedido</th>
                     <th>Email</th>
                     <th>Mesa</th>
-                    <th>Contagem de Cliques na Mesa</th>
+                    <th>QTY PEDIDO</th>
                     <th>Ação</th>
                 </tr>
             </thead>
@@ -516,6 +585,7 @@
                     <th>Data do Pedido</th>
                     <th>Email</th>
                     <th>Mesa</th>
+                    <th>QTY PEDIDO</th>
                 </tr>
             </thead>
             <tbody id="finalized-table-body">
@@ -523,7 +593,27 @@
             </tbody>
         </table>
         <div id="total-cost"></div>
-        <button onclick="showScreen('table-screen')">Voltar</button>
+        <button class="back-button" onclick="showScreen('table-screen')">Voltar</button>
+    </div>
+
+    <div id="controle-mesa-dashboard" class="container">
+        <h1>Controle de Mesas</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Mesa</th>
+                    <th>Menu</th>
+                    <th>Matéria Prima</th>
+                    <th>Preço Venda</th>
+                    <th>Lucro</th>
+                    <th>Quantidade Pedida</th>
+                </tr>
+            </thead>
+            <tbody id="controle-table-body">
+                <!-- Conteúdo da tabela de controle de mesas será gerado dinamicamente aqui -->
+            </tbody>
+        </table>
+        <button class="back-button" onclick="showScreen('table-screen')">Voltar</button>
     </div>
 
     <div id="inventory-dashboard" class="container">
@@ -543,7 +633,7 @@
                 <!-- Conteúdo da tabela do painel de inventário será gerado dinamicamente aqui -->
             </tbody>
         </table>
-        <button onclick="showScreen('table-screen')">Voltar</button>
+        <button class="back-button" onclick="showScreen('table-screen')">Voltar</button>
     </div>
 </body>
 </html>
